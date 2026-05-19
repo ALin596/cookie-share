@@ -4,6 +4,7 @@ export const SCHEMA_STATEMENTS: string[] = [
     url TEXT NOT NULL,
     host TEXT NOT NULL,
     cookies_json TEXT NOT NULL,
+    local_storage_json TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   )`,

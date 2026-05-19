@@ -15,6 +15,7 @@ const SCHEMA_STATEMENTS = [
     url TEXT NOT NULL,
     host TEXT NOT NULL,
     cookies_json TEXT NOT NULL,
+    local_storage_json TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   )`,
@@ -356,6 +357,7 @@ async function handleSendCookies(request, env, encryptionSecret) {
   const id = validateId(body?.id, "Invalid ID. Only letters and numbers are allowed.");
   const normalizedUrl = normalizeUrl(body?.url);
   const cookies = normalizeCookies(body?.cookies);
+  const localStorage = normalizeLocalStorage(body?.localStorage);
 
   await ensureSchema(env.COOKIE_DB);
   await upsertCookieRecord(env.COOKIE_DB, {
@@ -363,6 +365,7 @@ async function handleSendCookies(request, env, encryptionSecret) {
     url: normalizedUrl,
     host: extractHost(normalizedUrl),
     cookies,
+    localStorage,
   });
 
   return await encryptedJsonResponse(200, {
@@ -386,6 +389,7 @@ async function handleReceiveCookies(cookieId, env, encryptionSecret) {
   return await encryptedJsonResponse(200, {
     success: true,
     cookies: record.cookies.map((cookie) => formatCookieForResponse(cookie)),
+    localStorage: record.localStorage,
   }, encryptionSecret);
 }
 
@@ -400,7 +404,9 @@ async function handleListCookies(env, encryptionSecret) {
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
       cookies: record.cookies,
+      localStorage: record.localStorage,
       cookiesJson: JSON.stringify(record.cookies, null, 2),
+      localStorageJson: JSON.stringify(record.localStorage, null, 2),
     })),
   }, encryptionSecret);
 }
@@ -418,6 +424,7 @@ async function handleUpdate(request, env, encryptionSecret) {
   const body = await readEncryptedRequestBody(request, encryptionSecret);
   const key = validateId(body?.key, "Invalid key. Only letters and numbers are allowed.");
   const cookies = normalizeCookies(body?.value);
+  const localStorage = normalizeLocalStorage(body?.localStorage);
 
   await ensureSchema(env.COOKIE_DB);
   const existingRecord = await getCookieRecord(env.COOKIE_DB, key);
@@ -438,6 +445,7 @@ async function handleUpdate(request, env, encryptionSecret) {
     url: nextUrl,
     host: extractHost(nextUrl),
     cookies,
+    localStorage,
   });
 
   return await encryptedJsonResponse(200, {
@@ -488,23 +496,29 @@ async function handleImportAll(request, env, encryptionSecret) {
 
 async function ensureSchema(database) {
   await database.batch(SCHEMA_STATEMENTS.map((statement) => database.prepare(statement)));
+  const { results } = await database.prepare("PRAGMA table_info(cookie_records)").all();
+  if (!results.some((column) => column.name === "local_storage_json")) {
+    await database.prepare("ALTER TABLE cookie_records ADD COLUMN local_storage_json TEXT NOT NULL DEFAULT '[]'").run();
+  }
 }
 
 async function upsertCookieRecord(database, record) {
   const now = new Date().toISOString();
   await database.prepare(
-    `INSERT INTO cookie_records (id, url, host, cookies_json, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?)
+    `INSERT INTO cookie_records (id, url, host, cookies_json, local_storage_json, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        url = excluded.url,
        host = excluded.host,
        cookies_json = excluded.cookies_json,
+       local_storage_json = excluded.local_storage_json,
        updated_at = excluded.updated_at`
   ).bind(
     record.id,
     record.url,
     record.host,
     JSON.stringify(record.cookies),
+    JSON.stringify(record.localStorage),
     record.createdAt || now,
     record.updatedAt || now
   ).run();
@@ -518,7 +532,7 @@ async function upsertCookieRecords(database, records) {
 
 async function getCookieRecord(database, id) {
   const row = await database.prepare(
-    `SELECT id, url, host, cookies_json, created_at, updated_at
+    `SELECT id, url, host, cookies_json, local_storage_json, created_at, updated_at
      FROM cookie_records
      WHERE id = ?`
   ).bind(id).first();
@@ -532,6 +546,7 @@ async function getCookieRecord(database, id) {
     url: row.url,
     host: row.host,
     cookies: parseStoredCookies(row.cookies_json, row.id),
+    localStorage: parseStoredLocalStorage(row.local_storage_json, row.id),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -555,7 +570,7 @@ async function listCookieRecordsByHost(database, host) {
 
 async function listCookieRecordsWithPayload(database) {
   const { results } = await database.prepare(
-    `SELECT id, url, host, cookies_json, created_at, updated_at
+    `SELECT id, url, host, cookies_json, local_storage_json, created_at, updated_at
      FROM cookie_records
      ORDER BY updated_at DESC`
   ).all();
@@ -565,6 +580,7 @@ async function listCookieRecordsWithPayload(database) {
     url: row.url,
     host: row.host,
     cookies: parseStoredCookies(row.cookies_json, row.id),
+    localStorage: parseStoredLocalStorage(row.local_storage_json, row.id),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
@@ -578,11 +594,13 @@ function normalizeImportRecord(record) {
   const id = validateId(record?.id, "Invalid ID. Only letters and numbers are allowed.");
   const url = normalizeUrl(record?.url);
   const cookies = normalizeCookies(record?.cookies);
+  const localStorage = normalizeLocalStorage(record?.localStorage);
   return {
     id,
     url,
     host: extractHost(url),
     cookies,
+    localStorage,
     createdAt: normalizeTimestamp(record?.createdAt),
     updatedAt: normalizeTimestamp(record?.updatedAt),
   };
@@ -612,6 +630,25 @@ function parseStoredCookies(rawCookies, recordId) {
     throw new HttpError(500, "Stored cookie data is invalid", {
       success: false,
       message: "Stored cookie data is invalid",
+    });
+  }
+}
+
+function parseStoredLocalStorage(rawLocalStorage, recordId) {
+  try {
+    const parsed = JSON.parse(rawLocalStorage);
+    if (!Array.isArray(parsed)) {
+      throw new Error("local_storage_json is not an array");
+    }
+    return parsed;
+  } catch (error) {
+    console.error("Failed to parse stored localStorage record", {
+      recordId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw new HttpError(500, "Stored localStorage data is invalid", {
+      success: false,
+      message: "Stored localStorage data is invalid",
     });
   }
 }
@@ -665,6 +702,32 @@ function normalizeCookies(value) {
     throw new HttpError(400, "Invalid cookie format", { success: false, message: "Invalid cookie format" });
   }
   return value.map((cookie) => normalizeCookie(cookie));
+}
+
+function normalizeLocalStorage(value) {
+  if (value === undefined || value === null) {
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    throw invalidLocalStorageError();
+  }
+  return value.map((entry) => normalizeLocalStorageEntry(entry));
+}
+
+function normalizeLocalStorageEntry(entry) {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    throw invalidLocalStorageError();
+  }
+  if (typeof entry.key !== "string" || !entry.key) {
+    throw invalidLocalStorageError();
+  }
+  if (typeof entry.value !== "string") {
+    throw invalidLocalStorageError();
+  }
+  return {
+    key: entry.key,
+    value: entry.value,
+  };
 }
 
 function normalizeCookie(cookie) {
@@ -726,6 +789,13 @@ function invalidCookieError() {
   return new HttpError(400, "Invalid cookie format", {
     success: false,
     message: "Invalid cookie format",
+  });
+}
+
+function invalidLocalStorageError() {
+  return new HttpError(400, "Invalid localStorage format", {
+    success: false,
+    message: "Invalid localStorage format",
   });
 }
 
@@ -951,6 +1021,10 @@ function handleAdminPage(basePath, runtimeConfig) {
                 Cookies JSON
                 <textarea id="createCookies" required></textarea>
               </label>
+              <label>
+                localStorage JSON
+                <textarea id="createLocalStorage">[]</textarea>
+              </label>
               <button type="submit">创建</button>
             </form>
           </article>
@@ -969,6 +1043,10 @@ function handleAdminPage(basePath, runtimeConfig) {
               <label>
                 Cookies JSON
                 <textarea id="updateCookies" required></textarea>
+              </label>
+              <label>
+                localStorage JSON
+                <textarea id="updateLocalStorage">[]</textarea>
               </label>
               <button type="submit">更新</button>
             </form>
@@ -1255,9 +1333,24 @@ function handleAdminPage(basePath, runtimeConfig) {
         }
       }
 
-      function showRawCookie(id, cookiesJson) {
+      function parseLocalStorageJson(id) {
+        const value = document.getElementById(id).value.trim();
+        if (!value) {
+          return [];
+        }
+        try {
+          return JSON.parse(value);
+        } catch {
+          throw new Error("localStorage 必须是合法 JSON 数组。");
+        }
+      }
+
+      function showRawCookie(id, cookiesJson, localStorageJson) {
         rawTitle.textContent = "Cookie 原文: " + id;
-        rawContent.textContent = cookiesJson || "[]";
+        rawContent.textContent = JSON.stringify({
+          cookies: JSON.parse(cookiesJson || "[]"),
+          localStorage: JSON.parse(localStorageJson || "[]"),
+        }, null, 2);
         rawDialog.showModal();
       }
 
@@ -1293,7 +1386,7 @@ function handleAdminPage(basePath, runtimeConfig) {
           rawButton.className = "secondary";
           rawButton.textContent = "查看原文";
           rawButton.addEventListener("click", () => {
-            showRawCookie(cookie.id, cookie.cookiesJson);
+            showRawCookie(cookie.id, cookie.cookiesJson, cookie.localStorageJson);
           });
           rawCell.appendChild(rawButton);
           button.type = "button";
@@ -1317,6 +1410,7 @@ function handleAdminPage(basePath, runtimeConfig) {
               id: document.getElementById("createId").value.trim(),
               url: document.getElementById("createUrl").value.trim(),
               cookies: parseCookieJson("createCookies"),
+              localStorage: parseLocalStorageJson("createLocalStorage"),
             },
           });
           document.getElementById("createForm").reset();
@@ -1336,6 +1430,7 @@ function handleAdminPage(basePath, runtimeConfig) {
               key: document.getElementById("updateId").value.trim(),
               url: document.getElementById("updateUrl").value.trim(),
               value: parseCookieJson("updateCookies"),
+              localStorage: parseLocalStorageJson("updateLocalStorage"),
             },
           });
           document.getElementById("updateForm").reset();

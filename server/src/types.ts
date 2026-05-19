@@ -25,11 +25,17 @@ export interface NormalizedCookie {
   value: string;
 }
 
+export interface LocalStorageEntry {
+  key: string;
+  value: string;
+}
+
 export interface CookieRecord {
   id: string;
   url: string;
   host: string;
   cookies: NormalizedCookie[];
+  localStorage: LocalStorageEntry[];
   createdAt: string;
   updatedAt: string;
 }
@@ -41,6 +47,7 @@ export interface CookieSummary {
 
 export interface AdminCookieRecord extends CookieRecord {
   cookiesJson: string;
+  localStorageJson: string;
 }
 
 export interface ImportRecord {
@@ -48,6 +55,7 @@ export interface ImportRecord {
   url: string;
   host: string;
   cookies: NormalizedCookie[];
+  localStorage: LocalStorageEntry[];
   createdAt: string | null;
   updatedAt: string | null;
 }
@@ -76,12 +84,14 @@ export interface SendCookiesRequestBody {
   id: string;
   url: string;
   cookies: NormalizedCookie[];
+  localStorage: LocalStorageEntry[];
 }
 
 export interface UpdateCookiesRequestBody {
   key: string;
   url?: string;
   value: NormalizedCookie[];
+  localStorage: LocalStorageEntry[];
 }
 
 export interface ImportAllRequestBody {

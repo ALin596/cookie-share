@@ -136,6 +136,7 @@ export function createApp(config: RuntimeConfig, store: CookieStore): express.Ex
       url: body.url,
       host: new URL(body.url).hostname.toLowerCase(),
       cookies: body.cookies,
+      localStorage: body.localStorage,
     });
     sendEncryptedJson(response, 200, {
       success: true,
@@ -157,6 +158,7 @@ export function createApp(config: RuntimeConfig, store: CookieStore): express.Ex
     sendEncryptedJson(response, 200, {
       success: true,
       cookies: record.cookies,
+      localStorage: record.localStorage,
     }, config.transportSecret);
   }));
 
@@ -199,6 +201,7 @@ export function createApp(config: RuntimeConfig, store: CookieStore): express.Ex
       url: body.url,
       host: new URL(body.url).hostname.toLowerCase(),
       cookies: body.cookies,
+      localStorage: body.localStorage,
     });
     sendEncryptedJson(response, 200, {
       success: true,
@@ -223,6 +226,7 @@ export function createApp(config: RuntimeConfig, store: CookieStore): express.Ex
       url: nextUrl,
       host: new URL(nextUrl).hostname.toLowerCase(),
       cookies: body.value,
+      localStorage: body.localStorage,
     });
     sendEncryptedJson(response, 200, {
       success: true,
@@ -248,6 +252,7 @@ export function createApp(config: RuntimeConfig, store: CookieStore): express.Ex
         url: record.url,
         host: record.host,
         cookies: record.cookies,
+        localStorage: record.localStorage,
         createdAt: record.createdAt,
         updatedAt: record.updatedAt,
       })),

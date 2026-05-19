@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS cookie_records (
   url TEXT NOT NULL,
   host TEXT NOT NULL,
   cookies_json TEXT NOT NULL,
+  local_storage_json TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );

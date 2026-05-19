@@ -1,7 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { HttpError } from "./errors";
 import { SCHEMA_STATEMENTS } from "./schema";
-import type { AdminCookieRecord, CookieRecord, CookieSummary, ImportRecord, NormalizedCookie } from "./types";
+import type { AdminCookieRecord, CookieRecord, CookieSummary, ImportRecord, LocalStorageEntry, NormalizedCookie } from "./types";
 import { validateId } from "./validation";
 
 interface CookieRecordRow {
@@ -9,6 +9,7 @@ interface CookieRecordRow {
   url: string;
   host: string;
   cookies_json: string;
+  local_storage_json: string;
   created_at: string;
   updated_at: string;
 }
@@ -39,6 +40,27 @@ function parseStoredCookies(rawCookies: string, recordId: string): NormalizedCoo
   }
 }
 
+function parseStoredLocalStorage(rawLocalStorage: string, recordId: string): LocalStorageEntry[] {
+  try {
+    const parsed = JSON.parse(rawLocalStorage) as unknown;
+    if (!Array.isArray(parsed)) {
+      throw new Error("local_storage_json is not an array");
+    }
+
+    return parsed as LocalStorageEntry[];
+  } catch (error) {
+    console.error("Failed to parse stored localStorage record", {
+      recordId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+
+    throw new HttpError(500, "Stored localStorage data is invalid", {
+      success: false,
+      message: "Stored localStorage data is invalid",
+    });
+  }
+}
+
 export class CookieStore {
   private readonly database: DatabaseSync;
 
@@ -50,6 +72,11 @@ export class CookieStore {
     for (const statement of SCHEMA_STATEMENTS) {
       this.database.prepare(statement).run();
     }
+
+    const columns = this.database.prepare("PRAGMA table_info(cookie_records)").all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === "local_storage_json")) {
+      this.database.prepare("ALTER TABLE cookie_records ADD COLUMN local_storage_json TEXT NOT NULL DEFAULT '[]'").run();
+    }
   }
 
   public upsertCookieRecord(record: {
@@ -57,23 +84,26 @@ export class CookieStore {
     url: string;
     host: string;
     cookies: NormalizedCookie[];
+    localStorage: LocalStorageEntry[];
     createdAt?: string | null;
     updatedAt?: string | null;
   }): void {
     const now = new Date().toISOString();
     this.database.prepare(
-      `INSERT INTO cookie_records (id, url, host, cookies_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO cookie_records (id, url, host, cookies_json, local_storage_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          url = excluded.url,
          host = excluded.host,
          cookies_json = excluded.cookies_json,
+         local_storage_json = excluded.local_storage_json,
          updated_at = excluded.updated_at`,
     ).run(
       record.id,
       record.url,
       record.host,
       JSON.stringify(record.cookies),
+      JSON.stringify(record.localStorage),
       record.createdAt ?? now,
       record.updatedAt ?? now,
     );
@@ -87,7 +117,7 @@ export class CookieStore {
 
   public getCookieRecord(id: string): CookieRecord | null {
     const row = this.database.prepare(
-      `SELECT id, url, host, cookies_json, created_at, updated_at
+      `SELECT id, url, host, cookies_json, local_storage_json, created_at, updated_at
        FROM cookie_records
        WHERE id = ?`,
     ).get(id) as unknown as CookieRecordRow | undefined;
@@ -101,6 +131,7 @@ export class CookieStore {
       url: row.url,
       host: row.host,
       cookies: parseStoredCookies(row.cookies_json, row.id),
+      localStorage: parseStoredLocalStorage(row.local_storage_json, row.id),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -124,21 +155,24 @@ export class CookieStore {
 
   public listCookieRecordsWithPayload(): AdminCookieRecord[] {
     const rows = this.database.prepare(
-      `SELECT id, url, host, cookies_json, created_at, updated_at
+      `SELECT id, url, host, cookies_json, local_storage_json, created_at, updated_at
        FROM cookie_records
        ORDER BY updated_at DESC`,
     ).all() as unknown as CookieRecordRow[];
 
     return rows.map((row) => {
       const cookies = parseStoredCookies(row.cookies_json, row.id);
+      const localStorage = parseStoredLocalStorage(row.local_storage_json, row.id);
       return {
         id: row.id,
         url: row.url,
         host: row.host,
         cookies,
+        localStorage,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
         cookiesJson: JSON.stringify(cookies, null, 2),
+        localStorageJson: JSON.stringify(localStorage, null, 2),
       };
     });
   }

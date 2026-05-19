@@ -25,6 +25,11 @@ const sampleCookies = [
   },
 ];
 
+const sampleLocalStorage = [
+  { key: "token", value: "jwt-token" },
+  { key: "theme", value: "dark" },
+];
+
 async function readJson(response: Response): Promise<unknown> {
   const text = await response.text();
   return text ? JSON.parse(text) : null;
@@ -100,6 +105,7 @@ describe("cookie-share server", () => {
       id: "abc123",
       url: "https://example.com/login",
       cookies: sampleCookies,
+      localStorage: sampleLocalStorage,
     });
 
     expect(createResponse.status).toBe(200);
@@ -113,6 +119,44 @@ describe("cookie-share server", () => {
     expect(decryptPayload(config.transportSecret, await readJson(receiveResponse))).toMatchObject({
       success: true,
       cookies: sampleCookies,
+      localStorage: sampleLocalStorage,
+    });
+  });
+
+  test("stores and receives localStorage-only records", async () => {
+    const createResponse = await postEncrypted(`${config.basePath}/send-cookies`, config.transportSecret, {
+      id: "localonly",
+      url: "https://example.com/login",
+      cookies: [],
+      localStorage: sampleLocalStorage,
+    });
+
+    expect(createResponse.status).toBe(200);
+
+    const receiveResponse = await fetch(`${baseUrl}${config.basePath}/receive-cookies/localonly`);
+    expect(receiveResponse.status).toBe(200);
+    expect(decryptPayload(config.transportSecret, await readJson(receiveResponse))).toMatchObject({
+      success: true,
+      cookies: [],
+      localStorage: sampleLocalStorage,
+    });
+  });
+
+  test("defaults missing localStorage to an empty array for older payloads", async () => {
+    const createResponse = await postEncrypted(`${config.basePath}/send-cookies`, config.transportSecret, {
+      id: "legacy1",
+      url: "https://example.com/login",
+      cookies: sampleCookies,
+    });
+
+    expect(createResponse.status).toBe(200);
+
+    const receiveResponse = await fetch(`${baseUrl}${config.basePath}/receive-cookies/legacy1`);
+    expect(receiveResponse.status).toBe(200);
+    expect(decryptPayload(config.transportSecret, await readJson(receiveResponse))).toMatchObject({
+      success: true,
+      cookies: sampleCookies,
+      localStorage: [],
     });
   });
 
@@ -121,11 +165,13 @@ describe("cookie-share server", () => {
       id: "host1",
       url: "https://example.com/account",
       cookies: sampleCookies,
+      localStorage: sampleLocalStorage,
     });
     await postEncrypted(`${config.basePath}/send-cookies`, config.transportSecret, {
       id: "host2",
       url: "https://another.com/account",
       cookies: sampleCookies,
+      localStorage: sampleLocalStorage,
     });
 
     const listResponse = await fetch(`${baseUrl}${config.basePath}/list-cookies-by-host/example.com`);
@@ -173,6 +219,7 @@ describe("cookie-share server", () => {
       id: "admin1",
       url: "https://example.com/login",
       cookies: sampleCookies,
+      localStorage: sampleLocalStorage,
     }, adminHeaders);
     expect(createResponse.status).toBe(200);
 
@@ -183,11 +230,13 @@ describe("cookie-share server", () => {
     expect(listResponse.status).toBe(200);
     expect(Array.isArray(listPayload.cookies)).toBe(true);
     expect((listPayload.cookies as Array<Record<string, unknown>>)[0]?.id).toBe("admin1");
+    expect((listPayload.cookies as Array<Record<string, unknown>>)[0]?.localStorage).toEqual(sampleLocalStorage);
 
     const updateResponse = await putEncrypted(`${config.basePath}/admin/update`, config.adminPassword, {
       key: "admin1",
       url: "https://example.com/updated",
       value: sampleCookies,
+      localStorage: [{ key: "updated", value: "yes" }],
     }, adminHeaders);
     expect(updateResponse.status).toBe(200);
     expect(decryptPayload(config.adminPassword, await readJson(updateResponse))).toMatchObject({
@@ -202,6 +251,7 @@ describe("cookie-share server", () => {
     const exportPayload = decryptPayload(config.adminPassword, await readJson(exportResponse)) as Record<string, unknown>;
     expect(exportPayload.version).toBe(ENCRYPTION_VERSION);
     expect(Array.isArray(exportPayload.records)).toBe(true);
+    expect((exportPayload.records as Array<Record<string, unknown>>)[0]?.localStorage).toEqual([{ key: "updated", value: "yes" }]);
 
     store.deleteCookieRecord("admin1");
 
@@ -265,11 +315,24 @@ describe("cookie-share server", () => {
       id: "valid123",
       url: "https://example.com/login",
       cookies: [{ name: "session" }],
+      localStorage: sampleLocalStorage,
     });
     expect(invalidCookieResponse.status).toBe(400);
     expect(decryptPayload(config.transportSecret, await readJson(invalidCookieResponse))).toMatchObject({
       success: false,
       message: "Invalid cookie format",
+    });
+
+    const invalidLocalStorageResponse = await postEncrypted(`${config.basePath}/send-cookies`, config.transportSecret, {
+      id: "valid124",
+      url: "https://example.com/login",
+      cookies: sampleCookies,
+      localStorage: [{ key: "token", value: 123 }],
+    });
+    expect(invalidLocalStorageResponse.status).toBe(400);
+    expect(decryptPayload(config.transportSecret, await readJson(invalidLocalStorageResponse))).toMatchObject({
+      success: false,
+      message: "Invalid localStorage format",
     });
   });
 

@@ -109,18 +109,19 @@
       menuShowList: `Show Cookie List (${getShortcutLabel("L")})`,
       menuSwitchLanguage: "Switch Language (Refresh Required)",
       notificationEnterCookieId: "Please enter or generate a Cookie ID",
-      notificationNoCookiesToSave: "No cookies to save on the current page",
-      notificationSavedLocally: "Cookie saved locally successfully",
+      notificationNoCookiesToSave:
+        "No cookies or localStorage data to save on the current page",
+      notificationSavedLocally: "Cookie and localStorage saved locally successfully",
       notificationEnterServer: "Please enter the server address",
       notificationSentSuccess: "Sent successfully",
       notificationReceivedSuccess: "Received successfully",
       notificationClearedSuccess:
-        "Cookies have been cleared, the page will refresh shortly",
+        "Cookies and localStorage have been cleared, the page will refresh shortly",
       notificationImportSuccess:
-        "Successfully imported {{count}} cookies from local, refreshing soon",
-      notificationLocalDataNotFound: "Local cookie data not found",
-      notificationLocalDataInvalid: "Local cookie data format invalid",
-      notificationLocalImportFailed: "Failed to import any local cookies",
+        "Successfully imported {{count}} items from local, refreshing soon",
+      notificationLocalDataNotFound: "Local data not found",
+      notificationLocalDataInvalid: "Local data format invalid",
+      notificationLocalImportFailed: "Failed to import any local data",
       notificationNeedServerAddress: "Please set the server address first",
       notificationReceiveFailed:
         "Receive {{source}} cookie failed: {{message}}",
@@ -162,7 +163,7 @@
       apiErrorNetwork: "Network request failed",
       apiErrorTimeout: "Request timeout",
       apiErrorInvalidData: "Invalid data format",
-      apiErrorNoImport: "No cookies were successfully imported",
+      apiErrorNoImport: "No cookies or localStorage data were successfully imported",
     },
     zh: {
       cookieShareTitle: "Cookie Share",
@@ -205,16 +206,16 @@
       menuShowList: `显示 Cookie 列表 (${getShortcutLabel("L")})`,
       menuSwitchLanguage: "切换语言 (需刷新页面)",
       notificationEnterCookieId: "请输入或生成一个 Cookie ID",
-      notificationNoCookiesToSave: "当前页面没有可保存的 Cookie",
-      notificationSavedLocally: "Cookie 已成功保存到本地",
+      notificationNoCookiesToSave: "当前页面没有可保存的 Cookie 或 localStorage 数据",
+      notificationSavedLocally: "Cookie 和 localStorage 已成功保存到本地",
       notificationEnterServer: "请输入服务器地址",
       notificationSentSuccess: "发送成功",
       notificationReceivedSuccess: "接收成功",
-      notificationClearedSuccess: "Cookie 已清除，页面即将刷新",
-      notificationImportSuccess: "成功从本地导入 {{count}} 个 Cookie，即将刷新",
-      notificationLocalDataNotFound: "本地 Cookie 数据未找到",
-      notificationLocalDataInvalid: "本地 Cookie 数据格式无效",
-      notificationLocalImportFailed: "未成功导入任何本地 Cookie",
+      notificationClearedSuccess: "Cookie 和 localStorage 已清除，页面即将刷新",
+      notificationImportSuccess: "成功从本地导入 {{count}} 项数据，即将刷新",
+      notificationLocalDataNotFound: "本地数据未找到",
+      notificationLocalDataInvalid: "本地数据格式无效",
+      notificationLocalImportFailed: "未成功导入任何本地数据",
       notificationNeedServerAddress: "请先设置服务器地址",
       notificationReceiveFailed: "接收 {{source}} Cookie 失败: {{message}}",
       notificationLocalDeleted: "本地 Cookie 已删除",
@@ -249,7 +250,7 @@
       apiErrorNetwork: "网络请求失败",
       apiErrorTimeout: "请求超时",
       apiErrorInvalidData: "无效的数据格式",
-      apiErrorNoImport: "未能成功导入任何 Cookie",
+      apiErrorNoImport: "未能成功导入任何 Cookie 或 localStorage 数据",
     },
   };
 
@@ -457,6 +458,98 @@
           });
         });
       });
+    },
+  };
+
+  // ===================== localStorage Management =====================
+  const localStorageManager = {
+    getAll() {
+      const entries = [];
+      for (let index = 0; index < window.localStorage.length; index++) {
+        const key = window.localStorage.key(index);
+        if (key === null) continue;
+        entries.push({
+          key,
+          value: window.localStorage.getItem(key) || "",
+        });
+      }
+      return entries;
+    },
+
+    clearAll() {
+      window.localStorage.clear();
+    },
+
+    setAll(entries) {
+      if (!Array.isArray(entries)) return 0;
+      let importedCount = 0;
+      for (const entry of entries) {
+        if (entry && typeof entry.key === "string" && typeof entry.value === "string") {
+          window.localStorage.setItem(entry.key, entry.value);
+          importedCount++;
+        }
+      }
+      return importedCount;
+    },
+  };
+
+  // ===================== Share Record Management =====================
+  const shareRecordManager = {
+    async collect(id) {
+      const cookies = await cookieManager.getAll();
+      const localStorage = localStorageManager.getAll();
+      return {
+        id,
+        url: window.location.href,
+        cookies,
+        localStorage,
+      };
+    },
+
+    hasData(record) {
+      return Boolean(
+        record &&
+          (Array.isArray(record.cookies) && record.cookies.length > 0 ||
+            Array.isArray(record.localStorage) && record.localStorage.length > 0),
+      );
+    },
+
+    normalize(record) {
+      if (!record || typeof record !== "object") {
+        throw new Error(t("notificationLocalDataInvalid"));
+      }
+      if (!Array.isArray(record.cookies)) {
+        throw new Error(t("notificationLocalDataInvalid"));
+      }
+      return {
+        ...record,
+        localStorage: Array.isArray(record.localStorage)
+          ? record.localStorage
+          : [],
+      };
+    },
+
+    async import(record) {
+      const normalized = this.normalize(record);
+      await cookieManager.clearAll();
+      let importedCount = 0;
+      for (const cookie of normalized.cookies) {
+        if (cookie?.name && typeof cookie.value === "string") {
+          await cookieManager.set(cookie);
+          importedCount++;
+        }
+      }
+      localStorageManager.clearAll();
+      importedCount += localStorageManager.setAll(normalized.localStorage);
+      if (importedCount === 0) {
+        throw new Error(t("apiErrorNoImport"));
+      }
+      return importedCount;
+    },
+
+    async saveLocal(record) {
+      const localKey = `cookie_share_local_${record.id}`;
+      await GM_setValue(localKey, JSON.stringify(record));
     },
   };
 
@@ -807,12 +900,11 @@
 
     async sendCookies(cookieId, customUrl, transportSecret) {
       try {
-        const cookies = await cookieManager.getAll();
-        if (!cookies.length) {
+        const data = await shareRecordManager.collect(cookieId);
+        if (!shareRecordManager.hasData(data)) {
           return { success: false, message: t("notificationNoCookiesToSave") };
         }
         const formattedUrl = utils.validateUrl(customUrl);
-        const data = { id: cookieId, url: window.location.href, cookies };
         return await this.requestEncryptedJson({
           method: "POST",
           url: `${formattedUrl}/send-cookies`,
@@ -836,17 +928,7 @@
         if (!response?.success || !Array.isArray(response.cookies)) {
           throw new Error(t("apiErrorInvalidData"));
         }
-        await cookieManager.clearAll();
-        let importedCount = 0;
-        for (const cookie of response.cookies) {
-          if (cookie?.name && cookie?.value) {
-            await cookieManager.set(cookie);
-            importedCount++;
-          }
-        }
-        if (importedCount === 0) {
-          throw new Error(t("apiErrorNoImport"));
-        }
+        await shareRecordManager.import(response);
         setTimeout(() => window.location.reload(), 500);
         return { success: true, message: t("notificationReceivedSuccess") };
       } catch (error) {
@@ -2054,14 +2136,12 @@
           }
 
           if (saveLocally) {
-            const cookies = await cookieManager.getAll();
-            if (!cookies.length) {
+            const data = await shareRecordManager.collect(cookieId);
+            if (!shareRecordManager.hasData(data)) {
               notification.show(t("notificationNoCookiesToSave"), "error");
               return;
             }
-            const data = { id: cookieId, url: window.location.href, cookies };
-            const localKey = `cookie_share_local_${data.id}`;
-            await GM_setValue(localKey, JSON.stringify(data));
+            await shareRecordManager.saveLocal(data);
             notification.show(t("notificationSavedLocally"), "success");
           } else {
             if (!serverUrl) {
@@ -2136,7 +2216,7 @@
             errorMessage = t("apiErrorTimeout");
           else if (error.message === "Invalid data format")
             errorMessage = t("apiErrorInvalidData");
-          else if (error.message === "No cookies were successfully imported")
+          else if (error.message === t("apiErrorNoImport"))
             errorMessage = t("apiErrorNoImport");
           notification.show(
             t("notificationReceiveFailed", {
@@ -2164,14 +2244,12 @@
           }
 
           if (saveLocally) {
-            const cookies = await cookieManager.getAll();
-            if (!cookies.length) {
+            const data = await shareRecordManager.collect(cookieId);
+            if (!shareRecordManager.hasData(data)) {
               notification.show(t("notificationNoCookiesToSave"), "error");
               return;
             }
-            const data = { id: cookieId, url: window.location.href, cookies };
-            const localKey = `cookie_share_local_${data.id}`;
-            await GM_setValue(localKey, JSON.stringify(data));
+            await shareRecordManager.saveLocal(data);
           } else {
             if (!serverUrl) {
               notification.show(t("notificationEnterServer"), "error");
@@ -2191,6 +2269,7 @@
             }
           }
           await cookieManager.clearAll();
+          localStorageManager.clearAll();
           notification.show(t("notificationClearedSuccess"), "success");
           setTimeout(() => window.location.reload(), 500);
         } catch (error) {
@@ -2209,6 +2288,7 @@
       clearBtn.onclick = async () => {
         if (await this.confirmDelete()) {
           await cookieManager.clearAll();
+          localStorageManager.clearAll();
           notification.show(t("notificationClearedSuccess"), "success");
           setTimeout(() => window.location.reload(), 500);
         }
@@ -2490,18 +2570,15 @@
               const rawData = await GM_getValue(localKey);
               if (!rawData) throw new Error(t("notificationLocalDataNotFound"));
               const cookieData = JSON.parse(rawData);
-              if (!Array.isArray(cookieData.cookies))
-                throw new Error(t("notificationLocalDataInvalid"));
-              await cookieManager.clearAll();
               let importedCount = 0;
-              for (const cookie of cookieData.cookies) {
-                if (cookie?.name && cookie?.value) {
-                  await cookieManager.set(cookie);
-                  importedCount++;
+              try {
+                importedCount = await shareRecordManager.import(cookieData);
+              } catch (error) {
+                if (error.message === t("apiErrorNoImport")) {
+                  throw new Error(t("notificationLocalImportFailed"));
                 }
+                throw error;
               }
-              if (importedCount === 0)
-                throw new Error(t("notificationLocalImportFailed"));
               notification.show(
                 t("notificationImportSuccess", { count: importedCount }),
                 "success",

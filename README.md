@@ -21,9 +21,9 @@ Many websites don't support multi-account switching, and sharing login sessions 
 
 **Cookie-share** solves this with a single Tampermonkey script. Send your cookies from a logged-in browser, receive them on any other device or browser with one click — no passwords, no QR codes, no manual editing. The backend is fully self-hosted (Cloudflare Worker or Node.js), so your data stays under your control.
 
-- **One Script, All Sites** — Works on any website with cookie-based authentication
+- **One Script, All Sites** — Works on sites that keep login state in cookies or localStorage
 - **Cross-device Sharing** — Share login sessions between desktops, laptops, and mobile browsers
-- **Local-only Mode** — Save cookies locally without any backend, perfect for single-device multi-account switching
+- **Local-only Mode** — Save cookies and localStorage locally without any backend, perfect for single-device multi-account switching
 - **HTTPOnly Support** — Access `HTTPOnly` cookies that ordinary page JS cannot reach
 - **Self-hosted Backend** — Cloudflare Worker (D1) or Node.js server, your data never touches third-party services
 - **Encrypted Transport** — All cloud operations use `TRANSPORT_SECRET` encrypted envelopes
@@ -43,15 +43,15 @@ Many websites don't support multi-account switching, and sharing login sessions 
 ### Core
 
 - Generate random unique IDs for cookie sharing
-- Send cookies from current tab to server
-- Receive and set cookies from server to current tab
+- Send cookies and localStorage from current tab to server
+- Receive and set cookies and localStorage from server to current tab
 - Support `HTTPOnly` cookies that ordinary page JS cannot access
-- Admin panel for managing all stored cookies
+- Admin panel for managing all stored cookies and localStorage data
 
 ### Storage
 
-- Save cookies locally without backend (v0.1.0+)
-- Manage cookies with Cookie List (local and cloud data)
+- Save cookies and localStorage locally without backend
+- Manage cookies and localStorage with Cookie List (local and cloud data)
 - Cloud storage via self-hosted Cloudflare Worker (D1) or Node.js server
 
 ### UI & Themes
@@ -89,7 +89,7 @@ Many websites don't support multi-account switching, and sharing login sessions 
 
 As of v0.1.0, Cookie-share supports local storage. You can use the script without a backend server:
 
-- Enable the "Save to local" checkbox to store cookies locally
+- Enable the "Save to local" checkbox to store cookies and localStorage locally
 - The Cookie List distinguishes between local and cloud data
 - Perfect for personal use on a single device or when privacy is a top concern
 
@@ -161,8 +161,8 @@ Advantages of the Node.js server:
 - Ensure `TRANSPORT_SECRET` is long and random, and rotate it independently from the admin password
 - Don't hardcode `ADMIN_PASSWORD` in code, always use environment variables
 - Don't reuse `ADMIN_PASSWORD` as the transport encryption secret
-- Regularly review stored data in D1 and delete unnecessary cookie data
-- Consider setting expiration times for cookie data to reduce risk of storing sensitive information long-term
+- Regularly review stored data in D1 and delete unnecessary cookie/localStorage data
+- Consider setting expiration times for stored data to reduce risk of keeping sensitive cookies, JWTs, or tokens long-term
 - Use `PATH_SECRET` in worker config to prevent brute force attacks
 - Set complex project names and disable built-in workers.dev domain
 
@@ -219,8 +219,8 @@ Note:
 - The userscript and admin page handle encryption automatically; plain `curl` examples are no longer sufficient unless you implement the matching client-side encryption
 
 Available endpoints:
-- `POST /{PATH_SECRET}/send-cookies` — Store cookies associated with unique ID
-- `GET /{PATH_SECRET}/receive-cookies/{id}` — Receive cookies for a given ID
+- `POST /{PATH_SECRET}/send-cookies` — Store cookies and localStorage associated with unique ID
+- `GET /{PATH_SECRET}/receive-cookies/{id}` — Receive cookies and localStorage for a given ID
 - `GET /{PATH_SECRET}/list-cookies-by-host/{host}` — Userscript cloud list endpoint
 - `DELETE /{PATH_SECRET}/delete?key={id}` — Userscript cloud delete endpoint
 - `GET /{PATH_SECRET}/admin` — Open the admin UI shell
@@ -233,7 +233,7 @@ Available endpoints:
 - `POST /{PATH_SECRET}/admin/import-all` — Import encrypted JSON and upsert records by ID
 - `OPTIONS /{PATH_SECRET}/` — Handle CORS preflight requests
 
-Admin management page provides a user-friendly interface for managing cookies and other data. It includes viewing all stored cookies, creating new cookie entries, updating existing cookies, and deleting individual cookie records.
+Admin management page provides a user-friendly interface for managing cookies and localStorage data. It includes viewing stored payloads, creating new entries, updating existing entries, and deleting individual records.
 
 To access the admin page, navigate to `https://your-backend-address/{PATH_SECRET}/admin` in the browser. The admin page only requires `ADMIN_PASSWORD`. The userscript only requires `TRANSPORT_SECRET`.
 

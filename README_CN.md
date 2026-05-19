@@ -27,9 +27,9 @@
 
 **Cookie-share** 用一个油猴脚本解决了这个问题。在已登录的浏览器发送 Cookie，在任意其他设备或浏览器一键接收——不需要密码、不需要扫码、不需要手动编辑。后端完全自建（Cloudflare Worker 或 Node.js 服务器），数据完全由你掌控。
 
-- **一个脚本，通吃所有网站** — 只要网站使用 Cookie 认证就能用
+- **一个脚本，通吃所有网站** — 支持使用 Cookie 或 localStorage 保存登录态的网站
 - **跨设备共享** — 在台式机、笔记本、手机浏览器之间共享登录会话
-- **纯本地模式** — 无需后端，在本地保存 Cookie，适合单设备多账号切换
+- **纯本地模式** — 无需后端，在本地保存 Cookie 和 localStorage，适合单设备多账号切换
 - **HTTPOnly 支持** — 可以访问普通页面 JS 无法触及的 `HTTPOnly` Cookie
 - **自建后端** — Cloudflare Worker (D1) 或 Node.js 服务器，数据不经过第三方
 - **加密传输** — 所有云端操作使用 `TRANSPORT_SECRET` 加密信封
@@ -49,15 +49,15 @@
 ### 核心功能
 
 - 为 Cookie 共享生成随机唯一 ID
-- 将当前标签页的 Cookie 发送到服务器
-- 从服务器接收并设置 Cookie 到当前标签页
+- 将当前标签页的 Cookie 和 localStorage 发送到服务器
+- 从服务器接收并设置 Cookie 和 localStorage 到当前标签页
 - 支持普通页面 JS 无法访问的 `HTTPOnly` Cookie
-- 管理员面板管理所有存储的 Cookie
+- 管理员面板管理所有存储的 Cookie 和 localStorage 数据
 
 ### 存储
 
-- 在本地保存 Cookie，无需后端（v0.1.0+）
-- 通过 Cookie List 管理 Cookie（区分本地与云端数据）
+- 在本地保存 Cookie 和 localStorage，无需后端
+- 通过 Cookie List 管理 Cookie 和 localStorage（区分本地与云端数据）
 - 云端存储通过自建 Cloudflare Worker (D1) 或 Node.js 服务器
 
 ### 界面与主题
@@ -167,8 +167,8 @@ Node.js 服务器的优势：
 - 确保 `TRANSPORT_SECRET` 足够随机，并与管理员密码独立轮换
 - 不要在代码中硬编码 `ADMIN_PASSWORD`，始终使用环境变量
 - 不要复用 `ADMIN_PASSWORD` 作为传输加密密钥
-- 定期审查 D1 中存储的数据，删除不必要的 Cookie 数据
-- 考虑为 Cookie 数据设置过期时间，以降低长期存储敏感信息的风险
+- 定期审查 D1 中存储的数据，删除不必要的 Cookie/localStorage 数据
+- 考虑为存储数据设置过期时间，以降低长期保存敏感 Cookie、JWT 或 token 的风险
 - 在 Worker 配置中使用 `PATH_SECRET` 以防止暴力破解攻击
 - 设置复杂的项目名称并禁用内置的 workers.dev 域名
 
@@ -225,8 +225,8 @@ v0.4.1 将存储从 Cloudflare KV 切换到了 D1 数据库，数据格式不兼
 - 油猴脚本和管理页会自动处理加解密；如果直接用 `curl`，需要自己实现对应的客户端加密逻辑
 
 可用端点：
-- `POST /{PATH_SECRET}/send-cookies` — 存储与唯一 ID 关联的 Cookie
-- `GET /{PATH_SECRET}/receive-cookies/{id}` — 读取指定 ID 的 Cookie
+- `POST /{PATH_SECRET}/send-cookies` — 存储与唯一 ID 关联的 Cookie 和 localStorage
+- `GET /{PATH_SECRET}/receive-cookies/{id}` — 读取指定 ID 的 Cookie 和 localStorage
 - `GET /{PATH_SECRET}/list-cookies-by-host/{host}` — 油猴脚本云端列表接口
 - `DELETE /{PATH_SECRET}/delete?key={id}` — 油猴脚本云端删除接口
 - `GET /{PATH_SECRET}/admin` — 打开管理页面

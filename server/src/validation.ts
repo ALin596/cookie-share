@@ -1,6 +1,7 @@
 import { HttpError } from "./errors";
 import type {
   ImportRecord,
+  LocalStorageEntry,
   NormalizedCookie,
   SameSiteValue,
   SendCookiesRequestBody,
@@ -74,6 +75,13 @@ function invalidCookieError(): HttpError {
   return new HttpError(400, "Invalid cookie format", {
     success: false,
     message: "Invalid cookie format",
+  });
+}
+
+function invalidLocalStorageError(): HttpError {
+  return new HttpError(400, "Invalid localStorage format", {
+    success: false,
+    message: "Invalid localStorage format",
   });
 }
 
@@ -151,6 +159,38 @@ export function normalizeCookies(value: unknown): NormalizedCookie[] {
   return value.map((cookie) => normalizeCookie(cookie));
 }
 
+function normalizeLocalStorageEntry(entry: unknown): LocalStorageEntry {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    throw invalidLocalStorageError();
+  }
+
+  const record = entry as Record<string, unknown>;
+  if (typeof record.key !== "string" || !record.key) {
+    throw invalidLocalStorageError();
+  }
+
+  if (typeof record.value !== "string") {
+    throw invalidLocalStorageError();
+  }
+
+  return {
+    key: record.key,
+    value: record.value,
+  };
+}
+
+export function normalizeLocalStorage(value: unknown): LocalStorageEntry[] {
+  if (value === undefined || value === null) {
+    return [];
+  }
+
+  if (!Array.isArray(value)) {
+    throw invalidLocalStorageError();
+  }
+
+  return value.map((entry) => normalizeLocalStorageEntry(entry));
+}
+
 function normalizeTimestamp(value: unknown): string | null {
   if (typeof value !== "string" || !value.trim()) {
     return null;
@@ -166,6 +206,7 @@ export function normalizeSendCookiesBody(payload: unknown): SendCookiesRequestBo
     id: validateId(body.id, "Invalid ID. Only letters and numbers are allowed."),
     url: normalizeUrl(body.url),
     cookies: normalizeCookies(body.cookies),
+    localStorage: normalizeLocalStorage(body.localStorage),
   };
 }
 
@@ -174,6 +215,7 @@ export function normalizeUpdateBody(payload: unknown): UpdateCookiesRequestBody 
   const normalized: UpdateCookiesRequestBody = {
     key: validateId(body.key, "Invalid key. Only letters and numbers are allowed."),
     value: normalizeCookies(body.value),
+    localStorage: normalizeLocalStorage(body.localStorage),
   };
 
   if (typeof body.url === "string" && body.url.trim()) {
@@ -192,6 +234,7 @@ export function normalizeImportRecord(record: unknown): ImportRecord {
     url,
     host: extractHost(url),
     cookies: normalizeCookies(payload.cookies),
+    localStorage: normalizeLocalStorage(payload.localStorage),
     createdAt: normalizeTimestamp(payload.createdAt),
     updatedAt: normalizeTimestamp(payload.updatedAt),
   };
